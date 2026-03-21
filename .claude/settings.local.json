@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C C:Usersameritanda-contract status)",
+      "Bash(git -C /c/Users/ameri/tanda-contract status)"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "setup-stellar-contracts": {
+      "source": "openzeppelin/openzeppelin-skills",
+      "sourceType": "github",
+      "computedHash": "481f206fb4cc8b294ca66b8bdd72c74c93a8c6bc97994c7afa2c15af21cf5a60"
+    },
+    "stellar-dev": {
+      "source": "stellar/stellar-dev-skill",
+      "sourceType": "github",
+      "computedHash": "f5c0ec354a2b8068ed9531db407fbc0751a427a2e71da649c450fd9f9c9ec814"
+    },
+    "upgrade-stellar-contracts": {
+      "source": "openzeppelin/openzeppelin-skills",
+      "sourceType": "github",
+      "computedHash": "c262306d5667bb8fa8165c6940637089d2a5ca1533f5141d294bbef025ac8e0e"
+    }
+  }
+}
