@@ -1,86 +1,67 @@
-/// On-chain event helpers.
+/// On-chain event types for the Tanda contract.
 ///
-/// Every state-changing action emits a structured event so that off-chain
-/// auditors (wallets, dashboards, explorers) can reconstruct the full history
-/// of the tanda without reading contract storage.
-use soroban_sdk::{Address, Env, Symbol};
+/// Using the `#[contractevent]` macro (soroban-sdk v25) so that off-chain
+/// indexers (wallets, explorers) can decode events from typed schemas.
+use soroban_sdk::{contractevent, Address};
 
-// ── topic symbols (≤9 chars each) ──────────────────────────────────────────
-
-fn sym(env: &Env, s: &str) -> Symbol {
-    Symbol::new(env, s)
-}
-
-// ── emitters ───────────────────────────────────────────────────────────────
+// ── Event types ────────────────────────────────────────────────────────────
 
 /// Participant successfully registered.
-pub fn emit_registered(env: &Env, participant: &Address, turn: u32) {
-    env.events()
-        .publish((sym(env, "registered"), participant.clone()), turn);
+#[contractevent(topics = ["registered"])]
+pub struct RegisteredEvent {
+    pub participant: Address,
+    pub turn: u32,
 }
 
 /// Tanda moved to Active status.
-pub fn emit_tanda_started(env: &Env, start_time: u64, max_participants: u32) {
-    env.events()
-        .publish((sym(env, "tanda_start"),), (start_time, max_participants));
+#[contractevent(topics = ["tanda_start"])]
+pub struct TandaStartedEvent {
+    pub start_time: u64,
+    pub max_participants: u32,
 }
 
 /// A payment was successfully processed.
-/// `collateral` = USDC retained (10%), `invested` = USDC sent to Etherfuse.
-pub fn emit_payment_made(
-    env: &Env,
-    participant: &Address,
-    round: u32,
-    amount: i128,
-    collateral: i128,
-    invested: i128,
-    cetes_minted: i128,
-) {
-    env.events().publish(
-        (sym(env, "paid"), participant.clone()),
-        (round, amount, collateral, invested, cetes_minted),
-    );
+/// `collateral` = USDC retained (10%), `invested` = USDC forwarded to Etherfuse.
+#[contractevent(topics = ["paid"])]
+pub struct PaymentMadeEvent {
+    pub participant: Address,
+    pub round: u32,
+    pub amount: i128,
+    pub collateral: i128,
+    pub invested: i128,
+    pub cetes_minted: i128,
 }
 
 /// A participant missed their payment; collateral was used to cover.
-pub fn emit_payment_missed(
-    env: &Env,
-    participant: &Address,
-    round: u32,
-    own_collateral_used: i128,
-    pool_used: i128,
-) {
-    env.events().publish(
-        (sym(env, "missed"), participant.clone()),
-        (round, own_collateral_used, pool_used),
-    );
+#[contractevent(topics = ["missed"])]
+pub struct PaymentMissedEvent {
+    pub participant: Address,
+    pub round: u32,
+    pub own_collateral_used: i128,
+    pub pool_used: i128,
 }
 
 /// A round was finalised and the next round started (or tanda completed).
-pub fn emit_round_finalized(env: &Env, round: u32, beneficiary: &Address) {
-    env.events()
-        .publish((sym(env, "round_end"),), (round, beneficiary.clone()));
+#[contractevent(topics = ["round_end"])]
+pub struct RoundFinalizedEvent {
+    pub round: u32,
+    pub beneficiary: Address,
 }
 
 /// Beneficiary withdrew their payout from the tanda.
-pub fn emit_payout_claimed(
-    env: &Env,
-    participant: &Address,
-    payout_round: u32,
-    principal: i128,
-    yield_amount: i128,
-    collateral_returned: i128,
-) {
-    env.events().publish(
-        (sym(env, "claimed"), participant.clone()),
-        (payout_round, principal, yield_amount, collateral_returned),
-    );
+#[contractevent(topics = ["claimed"])]
+pub struct PayoutClaimedEvent {
+    pub participant: Address,
+    pub payout_round: u32,
+    pub principal: i128,
+    pub yield_amount: i128,
+    pub collateral_returned: i128,
 }
 
 /// Beneficiary elected to leave their payout invested in CETES.
-pub fn emit_payout_reinvested(env: &Env, participant: &Address, payout_round: u32, cetes_kept: i128) {
-    env.events().publish(
-        (sym(env, "reinvested"), participant.clone()),
-        (payout_round, cetes_kept),
-    );
+#[contractevent(topics = ["reinvested"])]
+pub struct PayoutReinvestedEvent {
+    pub participant: Address,
+    pub payout_round: u32,
+    pub cetes_kept: i128,
 }

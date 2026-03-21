@@ -4,7 +4,7 @@
 //!
 //! ## Lifecycle
 //! ```
-//! initialize() → register() × N → [auto-start] → make_payment() × (N rounds × N participants)
+//! deploy (constructor) → register() × N → [auto-start] → make_payment() × (N rounds × N participants)
 //!   → finalize_round() → claim_payout() / reinvest_payout()  [× N rounds]
 //! ```
 //!
@@ -31,9 +31,14 @@ use events::*;
 use types::*;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Env, Vec,
+    contract, contractimpl, contractmeta, contracttype, Address, BytesN, Env, Vec,
     token::Client as TokenClient,
 };
+
+// ─── Contract metadata (SEP-49 / on-chain version tracking) ──────────────────
+
+contractmeta!(key = "Description", val = "Tanda ROSCA Group Savings — Soroban");
+contractmeta!(key = "binver", val = "1.0.0");
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
@@ -165,6 +170,19 @@ fn bump_instance(env: &Env) {
         .extend_ttl(TTL_THRESHOLD, TTL_BUMP);
 }
 
+// ─── Payout turn helper ───────────────────────────────────────────────────────
+
+/// Look up the payout round index for `participant` in the turn order.
+fn find_payout_round(env: &Env, participant: &Address) -> Result<u32, TandaError> {
+    let order = load_turn_order(env);
+    for i in 0..order.len() {
+        if order.get(i).unwrap() == *participant {
+            return Ok(i);
+        }
+    }
+    Err(TandaError::ParticipantNotFound)
+}
+
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -176,7 +194,9 @@ impl TandaContract {
     // SETUP
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// Create a new tanda.
+    /// Initialise a new tanda at deployment time (Protocol 22 constructor).
+    ///
+    /// Runs exactly once — atomically with contract creation.
     ///
     /// # Arguments
     /// * `admin`            – Administrator (can finalize rounds after window closes).
@@ -186,7 +206,7 @@ impl TandaContract {
     /// * `period_secs`      – Payment window per round (e.g. `2_592_000` = 30 days).
     /// * `payment_token`    – USDC SEP-41 contract address.
     /// * `cetes_token`      – Etherfuse stablebond contract address.
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         admin: Address,
         max_participants: u32,
@@ -194,12 +214,9 @@ impl TandaContract {
         period_secs: u64,
         payment_token: Address,
         cetes_token: Address,
-    ) -> Result<(), TandaError> {
-        if env.storage().instance().has(&DataKey::Config) {
-            return Err(TandaError::AlreadyInitialized);
-        }
+    ) {
         if !(2..=20).contains(&max_participants) || payment_amount <= 0 || period_secs == 0 {
-            return Err(TandaError::InvalidAmount);
+            panic!("invalid params");
         }
         admin.require_auth();
 
@@ -220,7 +237,16 @@ impl TandaContract {
             },
         );
         bump_instance(&env);
-        Ok(())
+    }
+
+    /// Replace the contract's WASM binary (admin-only).
+    ///
+    /// The new implementation takes effect after this invocation completes.
+    /// Storage keys and types must remain compatible — see upgrade-safety notes.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let c = load_cfg(&env);
+        c.admin.require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -271,7 +297,7 @@ impl TandaContract {
             },
         );
 
-        emit_registered(&env, &participant, turn);
+        RegisteredEvent { participant: participant.clone(), turn }.publish(&env);
 
         // Auto-start when all slots filled
         if list.len() >= c.max_participants {
@@ -294,7 +320,7 @@ impl TandaContract {
                 },
             );
 
-            emit_tanda_started(&env, now, c.max_participants);
+            TandaStartedEvent { start_time: now, max_participants: c.max_participants }.publish(&env);
         }
 
         store_cfg(&env, &c);
@@ -375,15 +401,14 @@ impl TandaContract {
         r.total_collected += c.payment_amount;
         store_round(&env, &r);
 
-        emit_payment_made(
-            &env,
-            &participant,
-            c.current_round,
-            c.payment_amount,
+        PaymentMadeEvent {
+            participant: participant.clone(),
+            round: c.current_round,
+            amount: c.payment_amount,
             collateral,
-            invest_amount,
+            invested: invest_amount,
             cetes_minted,
-        );
+        }.publish(&env);
         bump_instance(&env);
         Ok(())
     }
@@ -443,13 +468,12 @@ impl TandaContract {
         r_new.total_collected += c.payment_amount;
         store_round(&env, &r_new);
 
-        emit_payment_missed(
-            &env,
-            &missed_participant,
-            c.current_round,
-            own_coverage,
-            pool_coverage,
-        );
+        PaymentMissedEvent {
+            participant: missed_participant.clone(),
+            round: c.current_round,
+            own_collateral_used: own_coverage,
+            pool_used: pool_coverage,
+        }.publish(&env);
         bump_instance(&env);
         Ok(())
     }
@@ -480,7 +504,7 @@ impl TandaContract {
 
         r.is_finalized = true;
         store_round(&env, &r);
-        emit_round_finalized(&env, c.current_round, &r.beneficiary);
+        RoundFinalizedEvent { round: c.current_round, beneficiary: r.beneficiary.clone() }.publish(&env);
 
         c.current_round += 1;
 
@@ -519,19 +543,7 @@ impl TandaContract {
         participant.require_auth();
 
         let c = load_cfg(&env);
-
-        // Locate payout round
-        let to = load_turn_order(&env);
-        let mut payout_round = u32::MAX;
-        for i in 0..to.len() {
-            if to.get(i).unwrap() == participant {
-                payout_round = i;
-                break;
-            }
-        }
-        if payout_round == u32::MAX {
-            return Err(TandaError::ParticipantNotFound);
-        }
+        let payout_round = find_payout_round(&env, &participant)?;
 
         let eligible =
             payout_round < c.current_round || c.status == TandaStatus::Completed;
@@ -592,14 +604,13 @@ impl TandaContract {
         }
         store_participant(&env, &participant, &p);
 
-        emit_payout_claimed(
-            &env,
-            &participant,
+        PayoutClaimedEvent {
+            participant: participant.clone(),
             payout_round,
             principal,
             yield_amount,
-            collateral_return,
-        );
+            collateral_returned: collateral_return,
+        }.publish(&env);
         bump_instance(&env);
         Ok(total_payout)
     }
@@ -612,18 +623,8 @@ impl TandaContract {
         participant.require_auth();
 
         let c = load_cfg(&env);
+        let payout_round = find_payout_round(&env, &participant)?;
 
-        let to = load_turn_order(&env);
-        let mut payout_round = u32::MAX;
-        for i in 0..to.len() {
-            if to.get(i).unwrap() == participant {
-                payout_round = i;
-                break;
-            }
-        }
-        if payout_round == u32::MAX {
-            return Err(TandaError::ParticipantNotFound);
-        }
         if payout_round >= c.current_round && c.status != TandaStatus::Completed {
             return Err(TandaError::NotYourTurn);
         }
@@ -639,7 +640,7 @@ impl TandaContract {
             return Err(TandaError::NoCetesToReinvest);
         }
 
-        emit_payout_reinvested(&env, &participant, payout_round, cetes_kept);
+        PayoutReinvestedEvent { participant: participant.clone(), payout_round, cetes_kept }.publish(&env);
         Ok(())
     }
 

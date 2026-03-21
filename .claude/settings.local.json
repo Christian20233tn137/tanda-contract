@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(git -C C:Usersameritanda-contract status)",
-      "Bash(git -C /c/Users/ameri/tanda-contract status)"
+      "Bash(git -C /c/Users/ameri/tanda-contract status)",
+      "Bash(cargo test:*)",
+      "Bash(stellar contract:*)",
+      "Bash(stellar keys:*)",
+      "Bash(curl -s \"https://friendbot.stellar.org?addr=GAIZSPRVGQSJWUJE7L5T3VHCNI2DI4LXVK6RDIVHV4H2AKBGPAYIFEYE\")",
+      "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(''''OK - hash:'''', r.get\\(''''hash'''', r\\)\\)\")",
+      "Bash(curl -s \"https://horizon-testnet.stellar.org/accounts/GAIZSPRVGQSJWUJE7L5T3VHCNI2DI4LXVK6RDIVHV4H2AKBGPAYIFEYE\")",
+      "Bash(findstr /i \"asset_code asset_issuer asset_type balance\")"
     ]
   }
 }

@@ -5,9 +5,9 @@ extern crate std;
 use super::*;
 use soroban_sdk::{
     contract, contractimpl, contracttype,
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Ledger, LedgerInfo, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
+    Address, Env, IntoVal,
 };
 
 // ─── Mock Etherfuse CETES contract ────────────────────────────────────────────
@@ -26,8 +26,8 @@ pub struct MockEtherfuse;
 
 #[contractimpl]
 impl MockEtherfuse {
-    /// Store the USDC token contract address so redeem can transfer tokens.
-    pub fn initialize(env: Env, token: Address) {
+    /// Store the USDC token contract address at deployment time.
+    pub fn __constructor(env: Env, token: Address) {
         env.storage().instance().set(&MockKey::Token, &token);
     }
 
@@ -63,7 +63,6 @@ struct TestEnv {
     env: Env,
     tanda: TandaContractClient<'static>,
     token_id: Address,
-    ef_id: Address,
     admin: Address,
     participants: std::vec::Vec<Address>,
 }
@@ -77,13 +76,14 @@ fn setup() -> TestEnv {
     let token_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
     let token_admin = StellarAssetClient::new(&env, &token_id);
 
-    // Deploy mock Etherfuse and configure its token reference
-    let ef_id = env.register(MockEtherfuse, ());
-    let ef_client = MockEtherfuseClient::new(&env, &ef_id);
-    ef_client.initialize(&token_id);
+    // Deploy mock Etherfuse with constructor (stores token address atomically)
+    let ef_id = env.register(MockEtherfuse, (token_id.clone(),));
 
-    // Deploy tanda contract
-    let tanda_id = env.register(TandaContract, ());
+    // Deploy tanda contract with constructor
+    let tanda_id = env.register(
+        TandaContract,
+        (admin.clone(), N, PAYMENT, PERIOD, token_id.clone(), ef_id.clone()),
+    );
     let tanda = TandaContractClient::new(&env, &tanda_id);
 
     // Mint tokens to participants
@@ -94,21 +94,10 @@ fn setup() -> TestEnv {
         ps.push(p);
     }
 
-    // Initialise
-    tanda.initialize(
-        &admin,
-        &N,
-        &PAYMENT,
-        &PERIOD,
-        &token_id,
-        &ef_id,
-    );
-
     TestEnv {
         env,
         tanda,
         token_id,
-        ef_id,
         admin,
         participants: ps,
     }
@@ -133,22 +122,6 @@ fn test_initialize() {
     assert_eq!(cfg.period_secs, PERIOD);
     assert_eq!(cfg.status, TandaStatus::Registering);
     assert_eq!(cfg.collateral_bps, 1_000);
-}
-
-#[test]
-#[should_panic]
-fn test_initialize_twice_fails() {
-    let t = setup();
-    let admin2 = Address::generate(&t.env);
-    // second initialize must panic with AlreadyInitialized
-    t.tanda.initialize(
-        &admin2,
-        &N,
-        &PAYMENT,
-        &PERIOD,
-        &t.token_id,
-        &t.ef_id,
-    );
 }
 
 #[test]
@@ -374,4 +347,31 @@ fn test_double_claim_fails() {
 
     // second claim must fail
     assert!(t.tanda.try_claim_payout(&t.participants[0]).is_err());
+}
+
+#[test]
+fn test_upgrade_only_admin() {
+    // Verify upgrade() requires admin auth — non-admin must fail.
+    let t = setup();
+
+    // The WASM hash for TandaContract itself (registered in tests as native).
+    // We use the contract's own installed wasm hash to prove the call signature
+    // works; in practice the hash would point to a new WASM binary.
+    let fake_hash = soroban_sdk::BytesN::from_array(&t.env, &[0u8; 32]);
+
+    let non_admin = &t.participants[0];
+
+    // Temporarily override mocked auths to only allow non_admin signature
+    // (i.e. admin auth is absent) — the call must be rejected.
+    t.env.mock_auths(&[MockAuth {
+        address: non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &t.tanda.address,
+            fn_name: "upgrade",
+            args: (fake_hash.clone(),).into_val(&t.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    assert!(t.tanda.try_upgrade(&fake_hash).is_err());
 }

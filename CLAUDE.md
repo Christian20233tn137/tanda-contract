@@ -30,14 +30,14 @@ Automates a rotating savings group ("tanda"):
 ### Contract source layout
 ```
 contracts/tanda/src/
-├── lib.rs          All callable functions (initialize, register, make_payment, …)
+├── lib.rs          All callable functions + upgrade(), __constructor
 ├── types.rs        TandaConfig, ParticipantInfo, RoundInfo, InvestmentPool
-├── errors.rs       TandaError enum (19 typed errors, #[contracterror])
-├── events.rs       On-chain event emitters (one per state change)
+├── errors.rs       TandaError enum (14 typed errors, #[contracterror])
+├── events.rs       #[contractevent] structs (one per state change)
 └── etherfuse.rs    Cross-contract client for Etherfuse stablebond
 ```
 
-### Key parameters (set at initialize())
+### Key parameters (set at deploy time via __constructor)
 | Parameter | Type | Example | Notes |
 |---|---|---|---|
 | `max_participants` | u32 | 5 | 2–20 |
@@ -47,11 +47,18 @@ contracts/tanda/src/
 
 ### Callable functions
 ```
-initialize  register  make_payment  handle_missed_payment
+__constructor  upgrade  register  make_payment  handle_missed_payment
 finalize_round  claim_payout  reinvest_payout
 get_config  get_round_info  get_investment_pool  get_collateral_pool
 get_participant  get_participants  get_turn_order  get_round_cetes
 ```
+
+### Upgradeability
+- `upgrade(new_wasm_hash: BytesN<32>)` — admin-only, replaces the WASM binary
+- New implementation takes effect **after** the current invocation completes
+- Storage key compatibility must be maintained across versions (never rename/remove keys)
+- Version tracked via `contractmeta!` in WASM binary (`binver = "1.0.0"`)
+- To upgrade: `stellar contract install` new WASM → call `upgrade(hash)`
 
 ### Collateral mechanics
 - 10% of each payment → personal `collateral_held` (USDC in contract)
@@ -82,15 +89,15 @@ get_participant  get_participants  get_turn_order  get_round_cetes
 ## Deployed contracts (testnet)
 | Contract | Address |
 |---|---|
-| **Tanda** | `CB2U6IECRFVSHXJ2MLRMF6BPFNKYTYA3OAIKCUIA622DEJJQSYBVNNHF` |
-| **Mock Etherfuse (CETES)** | `CCERQWDSG5MPZTGPL3NWTYPRNZHFQOQD5H43ZDDUGG2ZATNN7ZEZHCJC` |
+| **Tanda v1.0.0** | `CCMSKXEV5AYD6QZOXNASKGBZX3ERUAH2K2CD2H3ZE4NFJ3ANCXHFLTAU` |
+| **Mock Etherfuse (CETES)** | `CD7MNVVTG3V3C7QRLLPOTKRLKJBXNEFZRHSHRZJYMNW2UTOMIMVZB32X` |
 | **USDC (SAC)** | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` |
 
 Explorer links:
-- Tanda: https://lab.stellar.org/r/testnet/contract/CB2U6IECRFVSHXJ2MLRMF6BPFNKYTYA3OAIKCUIA622DEJJQSYBVNNHF
-- Mock CETES: https://lab.stellar.org/r/testnet/contract/CCERQWDSG5MPZTGPL3NWTYPRNZHFQOQD5H43ZDDUGG2ZATNN7ZEZHCJC
+- Tanda: https://lab.stellar.org/r/testnet/contract/CCMSKXEV5AYD6QZOXNASKGBZX3ERUAH2K2CD2H3ZE4NFJ3ANCXHFLTAU
+- Mock CETES: https://lab.stellar.org/r/testnet/contract/CD7MNVVTG3V3C7QRLLPOTKRLKJBXNEFZRHSHRZJYMNW2UTOMIMVZB32X
 
-Current state: **Registering** (3 participants needed, 10 USDC / 30-day period)
+Current state: **Registering** (5 participants needed, 1000 USDC / 30-day period)
 
 ## Common commands
 ```bash
@@ -100,20 +107,33 @@ stellar contract build
 # Run all tests (12 tests)
 cargo test
 
-# Deploy to testnet
+# Deploy to testnet (constructor args run atomically at deploy time)
 stellar contract deploy \
   --wasm target/wasm32v1-none/release/tanda.wasm \
-  --source alice --network testnet
-
-# Initialize (after deploy)
-stellar contract invoke --id $TANDA_ID --source alice --network testnet \
-  -- initialize \
+  --source alice --network testnet \
+  -- \
   --admin $(stellar keys public-key alice) \
   --max_participants 5 \
   --payment_amount 1000000000 \
   --period_secs 2592000 \
   --payment_token $USDC_ID \
   --cetes_token $EF_ID
+
+# Deploy mock Etherfuse (constructor takes USDC address)
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/mock_etherfuse.wasm \
+  --source alice --network testnet \
+  -- \
+  --token $USDC_ID
+
+# Upgrade (install new WASM first, then call upgrade)
+stellar contract install \
+  --wasm target/wasm32v1-none/release/tanda.wasm \
+  --source alice --network testnet
+# → prints WASM_HASH
+
+stellar contract invoke --id $TANDA_ID --source alice --network testnet \
+  -- upgrade --new_wasm_hash $WASM_HASH
 
 # Query state
 stellar contract invoke --id $TANDA_ID --network testnet -- get_config
@@ -128,10 +148,12 @@ stellar contract invoke --id $TANDA_ID --network testnet \
 - `has_received_payout == true` → cannot claim again (AlreadyReceivedPayout)
 - Payout only allowed when `payout_round < current_round` OR status == Completed
 - `overflow-checks = true` in Cargo release profile — do not disable
+- `upgrade()` requires admin auth — storage key layout must be preserved across versions
 
 ## Testing notes
 - All tests use `env.mock_all_auths()` to skip auth in unit tests
-- MockEtherfuse is defined in `test.rs` — it stores the token address and
-  actually transfers USDC on `redeem()` (1:1, no yield in mock)
+- MockEtherfuse and MockEtherfuseClient defined in `test.rs` — both now use `__constructor`
+- Both contracts registered with constructor args: `env.register(Contract, (args,))`
 - Use `advance_time(&env, secs)` helper to move past payment windows
 - Test snapshot files in `test_snapshots/` are auto-generated by Soroban testutils
+- `test_upgrade_only_admin` verifies upgrade is rejected when admin auth is absent

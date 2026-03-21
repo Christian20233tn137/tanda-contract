@@ -25,9 +25,8 @@ pub struct MockEtherfuse;
 
 #[contractimpl]
 impl MockEtherfuse {
-    /// Store the USDC token contract address.
-    /// Must be called once after deployment.
-    pub fn initialize(env: Env, token: Address) {
+    /// Store the USDC token contract address at deployment time.
+    pub fn __constructor(env: Env, token: Address) {
         env.storage().instance().set(&DataKey::Token, &token);
     }
 
