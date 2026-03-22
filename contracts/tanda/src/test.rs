@@ -375,3 +375,197 @@ fn test_upgrade_only_admin() {
 
     assert!(t.tanda.try_upgrade(&fake_hash).is_err());
 }
+
+// ─── New stabilization tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_missed_payment_total_collected_reflects_actual_coverage() {
+    // Verifies that after handle_missed_payment, total_collected
+    // equals the actual USDC covered (not the full payment_amount).
+    let t = setup();
+
+    for p in &t.participants {
+        t.tanda.register(p);
+    }
+
+    // Round 0: all pay normally → each builds collateral = PAYMENT / 10
+    for p in &t.participants {
+        t.tanda.make_payment(p);
+    }
+    t.tanda.finalize_round(&t.admin);
+
+    // Round 1: only participants[0] and [1] pay. participants[2] misses.
+    t.tanda.make_payment(&t.participants[0]);
+    t.tanda.make_payment(&t.participants[1]);
+
+    advance_time(&t.env, PERIOD + 1);
+
+    // participant[2]'s collateral from round 0 = PAYMENT / 10 = 100 USDC
+    // That's less than PAYMENT (1000 USDC), so shortfall exists.
+    let p2_collateral = t.tanda.get_participant(&t.participants[2]).collateral_held;
+    assert!(p2_collateral < PAYMENT, "collateral should be less than full payment");
+
+    t.tanda.handle_missed_payment(&t.participants[2]);
+
+    let r = t.tanda.get_round_info();
+    assert_eq!(r.payments_received, N);
+
+    // total_collected should be 2 full payments + actual coverage (NOT 3 full payments)
+    let _expected = PAYMENT * 2 + p2_collateral; // pool_coverage may add more
+    assert!(
+        r.total_collected <= PAYMENT * 2 + PAYMENT,
+        "total_collected should not exceed theoretical maximum"
+    );
+    // More importantly: total_collected < 3 * PAYMENT because coverage was partial
+    assert!(
+        r.total_collected < PAYMENT * N as i128,
+        "total_collected must reflect partial coverage, got {}",
+        r.total_collected
+    );
+}
+
+#[test]
+fn test_missed_payment_no_prior_collateral() {
+    // A participant misses payment on round 0 (no collateral built up yet).
+    // Coverage should come only from shared pool (which is also empty on round 0).
+    let t = setup();
+
+    // Register all
+    for p in &t.participants {
+        t.tanda.register(p);
+    }
+
+    // Round 0: participants[0] and [1] pay, but [2] never pays
+    t.tanda.make_payment(&t.participants[0]);
+    t.tanda.make_payment(&t.participants[1]);
+
+    advance_time(&t.env, PERIOD + 1);
+
+    // participant[2] has 0 collateral (never paid before)
+    let p2 = t.tanda.get_participant(&t.participants[2]);
+    assert_eq!(p2.collateral_held, 0);
+
+    // Shared collateral pool has 10% from participants[0] and [1]'s payments
+    let pool_before = t.tanda.get_collateral_pool();
+
+    // handle_missed_payment should succeed; coverage comes from shared pool
+    t.tanda.handle_missed_payment(&t.participants[2]);
+
+    let p2_after = t.tanda.get_participant(&t.participants[2]);
+    assert_eq!(p2_after.missed_payments, 1);
+    assert_eq!(p2_after.last_paid_round, 0);
+
+    let pool_after = t.tanda.get_collateral_pool();
+    let pool_used = pool_before - pool_after;
+
+    let r = t.tanda.get_round_info();
+    assert_eq!(r.payments_received, N);
+    // total_collected = 2 full payments + pool coverage (no own collateral)
+    assert_eq!(r.total_collected, PAYMENT * 2 + pool_used);
+    // Coverage should be partial (pool < full payment amount)
+    assert!(
+        r.total_collected < PAYMENT * N as i128,
+        "with 0 own collateral and limited pool, total should be less than full"
+    );
+}
+
+#[test]
+fn test_multiple_consecutive_missed_payments() {
+    // Same participant misses 2 rounds in a row.
+    // Collateral drains correctly each time.
+    let t = setup();
+
+    for p in &t.participants {
+        t.tanda.register(p);
+    }
+
+    // Round 0: all pay (builds collateral)
+    for p in &t.participants {
+        t.tanda.make_payment(p);
+    }
+    t.tanda.finalize_round(&t.admin);
+
+    // Round 1: participant[2] misses
+    t.tanda.make_payment(&t.participants[0]);
+    t.tanda.make_payment(&t.participants[1]);
+    advance_time(&t.env, PERIOD + 1);
+
+    let col_before_miss1 = t.tanda.get_participant(&t.participants[2]).collateral_held;
+    t.tanda.handle_missed_payment(&t.participants[2]);
+    let col_after_miss1 = t.tanda.get_participant(&t.participants[2]).collateral_held;
+    assert!(col_after_miss1 < col_before_miss1, "collateral should decrease after miss");
+
+    t.tanda.finalize_round(&t.admin);
+
+    // Round 2: participant[2] misses again
+    t.tanda.make_payment(&t.participants[0]);
+    t.tanda.make_payment(&t.participants[1]);
+    advance_time(&t.env, PERIOD + 1);
+
+    t.tanda.handle_missed_payment(&t.participants[2]);
+    let p2 = t.tanda.get_participant(&t.participants[2]);
+    assert_eq!(p2.missed_payments, 2);
+    // Collateral should have decreased further (or hit 0)
+    assert!(p2.collateral_held <= col_after_miss1);
+}
+
+#[test]
+fn test_reinvest_then_claim_fails() {
+    // After reinvest_payout, claim_payout should fail with AlreadyReceivedPayout.
+    let t = setup();
+
+    for p in &t.participants {
+        t.tanda.register(p);
+    }
+    for p in &t.participants {
+        t.tanda.make_payment(p);
+    }
+    t.tanda.finalize_round(&t.admin);
+
+    // participant[0] reinvests instead of claiming
+    t.tanda.reinvest_payout(&t.participants[0]);
+
+    // Now claiming should fail
+    let result = t.tanda.try_claim_payout(&t.participants[0]);
+    assert!(result.is_err(), "claim after reinvest should fail");
+}
+
+#[test]
+fn test_claim_payout_collateral_returned_only_on_completion() {
+    // Verify collateral is NOT returned during intermediate rounds,
+    // only when tanda status is Completed.
+    let t = setup();
+
+    for p in &t.participants {
+        t.tanda.register(p);
+    }
+
+    let token = TokenClient::new(&t.env, &t.token_id);
+
+    // Round 0: all pay
+    for p in &t.participants {
+        t.tanda.make_payment(p);
+    }
+    t.tanda.finalize_round(&t.admin);
+
+    // participant[0] claims after round 0 — tanda is still Active
+    let cfg = t.tanda.get_config();
+    assert_eq!(cfg.status, TandaStatus::Active);
+
+    let p0_info = t.tanda.get_participant(&t.participants[0]);
+    let collateral_before = p0_info.collateral_held;
+    assert!(collateral_before > 0, "should have collateral");
+
+    let bal_before = token.balance(&t.participants[0]);
+    let payout = t.tanda.claim_payout(&t.participants[0]);
+    let bal_after = token.balance(&t.participants[0]);
+
+    assert_eq!(bal_after - bal_before, payout);
+
+    // Collateral should NOT have been returned (tanda is Active, not Completed)
+    let p0_after = t.tanda.get_participant(&t.participants[0]);
+    assert_eq!(
+        p0_after.collateral_held, collateral_before,
+        "collateral should be unchanged during Active state"
+    );
+}

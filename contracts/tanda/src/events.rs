@@ -33,12 +33,14 @@ pub struct PaymentMadeEvent {
 }
 
 /// A participant missed their payment; collateral was used to cover.
+/// `shortfall` = amount that could not be covered (absorbed by beneficiary).
 #[contractevent(topics = ["missed"])]
 pub struct PaymentMissedEvent {
     pub participant: Address,
     pub round: u32,
     pub own_collateral_used: i128,
     pub pool_used: i128,
+    pub shortfall: i128,
 }
 
 /// A round was finalised and the next round started (or tanda completed).

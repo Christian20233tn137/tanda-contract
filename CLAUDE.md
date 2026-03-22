@@ -11,10 +11,10 @@
 - Network: **testnet**
 - Network passphrase: `Test SDF Network ; September 2015` (`Networks.TESTNET`)
 - RPC URL: `https://soroban-testnet.stellar.org`
-- USDC issuer (testnet): `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
-  (DeFindex-compatible issuer — do NOT use the Circle testnet issuer)
+- USDC issuer (testnet): `GCYX6CVR3LRHHJ42DZTL5D5UKEOAZZVJ3LHRTR7DG2VYHLLUNSEMH4F4`
+  (custom testnet issuer — key alias: `usdc-issuer`)
 - Local deployer key alias: `alice`
-  Public key: `GDTZQTGPOBXU4AA2U3HEQ7RPRBGXKUEZQSAXEGTLSM2CC45BPJLJOB6W`
+  Public key: `GC3CW2ML4SVQQPYYVX2ED4RIX234RTUQUNMD4INKOZEM4K6MP3PTTNIU`
 
 ## Contract: Tanda (ROSCA / Group Savings)
 
@@ -89,13 +89,13 @@ get_participant  get_participants  get_turn_order  get_round_cetes
 ## Deployed contracts (testnet)
 | Contract | Address |
 |---|---|
-| **Tanda v1.0.0** | `CCMSKXEV5AYD6QZOXNASKGBZX3ERUAH2K2CD2H3ZE4NFJ3ANCXHFLTAU` |
-| **Mock Etherfuse (CETES)** | `CD7MNVVTG3V3C7QRLLPOTKRLKJBXNEFZRHSHRZJYMNW2UTOMIMVZB32X` |
-| **USDC (SAC)** | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` |
+| **Tanda v1.0.0** | `CDJ6IFHWNLENDBYEYLS5MZJLKHSWZQBOR5YCUTJQZJZA6N2H7ESQZ5JL` |
+| **Mock Etherfuse (CETES)** | `CACGMVJODMCMLXH4KWURZZ7FWH4FA5EXE5P7KXZLBDB2BDEBD2AD6R6V` |
+| **USDC (SAC)** | `CBAGP2L3PVINJUJOMPTACPTINMRO5MHZEIWC3DYIIKLWM6XPRZHRO6OY` |
 
 Explorer links:
-- Tanda: https://lab.stellar.org/r/testnet/contract/CCMSKXEV5AYD6QZOXNASKGBZX3ERUAH2K2CD2H3ZE4NFJ3ANCXHFLTAU
-- Mock CETES: https://lab.stellar.org/r/testnet/contract/CD7MNVVTG3V3C7QRLLPOTKRLKJBXNEFZRHSHRZJYMNW2UTOMIMVZB32X
+- Tanda: https://lab.stellar.org/r/testnet/contract/CDJ6IFHWNLENDBYEYLS5MZJLKHSWZQBOR5YCUTJQZJZA6N2H7ESQZ5JL
+- Mock CETES: https://lab.stellar.org/r/testnet/contract/CACGMVJODMCMLXH4KWURZZ7FWH4FA5EXE5P7KXZLBDB2BDEBD2AD6R6V
 
 Current state: **Registering** (5 participants needed, 1000 USDC / 30-day period)
 

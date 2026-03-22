@@ -9,7 +9,19 @@
       "Bash(curl -s \"https://friendbot.stellar.org?addr=GAIZSPRVGQSJWUJE7L5T3VHCNI2DI4LXVK6RDIVHV4H2AKBGPAYIFEYE\")",
       "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(''''OK - hash:'''', r.get\\(''''hash'''', r\\)\\)\")",
       "Bash(curl -s \"https://horizon-testnet.stellar.org/accounts/GAIZSPRVGQSJWUJE7L5T3VHCNI2DI4LXVK6RDIVHV4H2AKBGPAYIFEYE\")",
-      "Bash(findstr /i \"asset_code asset_issuer asset_type balance\")"
+      "Bash(findstr /i \"asset_code asset_issuer asset_type balance\")",
+      "Bash(flutter pub:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(find /c/Users/Admin/AppData/Local/Pub/Cache/hosted/pub.dev/stellar_flutter_sdk-1.9.4/lib -name *address* -o -name *scval*)",
+      "Bash(grep -E \"\\\\.\\(dart|html\\)$\")",
+      "Bash(grep:*)",
+      "Bash(find /c/Users/Admin/AppData/Local/Pub/Cache/hosted/pub.dev/stellar_flutter_sdk-1.9.4/example -name *.dart)",
+      "Bash(find . -type f -name *.wasm)",
+      "Bash(find . -name *.sh -o -name *.json -o -name *.toml -o -name *.yml -o -name *.yaml)",
+      "Bash(ls:*)",
+      "Bash(flutter devices:*)",
+      "Bash(flutter run:*)",
+      "Bash(stellar tx:*)"
     ]
   }
 }

@@ -274,7 +274,7 @@ impl TandaContract {
             return Err(TandaError::TandaFull);
         }
 
-        // Proof-of-funds check
+        // Proof-of-funds: participant must hold at least 2× payment to register
         let token = TokenClient::new(&env, &c.payment_token);
         if token.balance(&participant) < c.payment_amount * 2 {
             return Err(TandaError::InsufficientBalance);
@@ -465,14 +465,18 @@ impl TandaContract {
 
         let mut r_new = r;
         r_new.payments_received += 1;
-        r_new.total_collected += c.payment_amount;
+        // Only credit what was actually covered, not the full payment_amount.
+        // Any shortfall is absorbed as a smaller payout for the beneficiary.
+        r_new.total_collected += own_coverage + pool_coverage;
         store_round(&env, &r_new);
 
+        let actual_shortfall = c.payment_amount - own_coverage - pool_coverage;
         PaymentMissedEvent {
             participant: missed_participant.clone(),
             round: c.current_round,
             own_collateral_used: own_coverage,
             pool_used: pool_coverage,
+            shortfall: actual_shortfall,
         }.publish(&env);
         bump_instance(&env);
         Ok(())
@@ -593,9 +597,14 @@ impl TandaContract {
         pool.accumulated_yield += yield_amount;
         store_investment_pool(&env, &pool);
 
+        // Clean up round CETES storage key (no longer needed after redemption)
+        env.storage().persistent().remove(&DataKey::RoundCetes(payout_round));
+
         if collateral_return > 0 {
-            let new_cp = (load_collateral_pool(&env) - collateral_return).max(0);
-            store_collateral_pool(&env, new_cp);
+            let cp = load_collateral_pool(&env);
+            // Cap to available pool to prevent underflow from accounting drift
+            let actual_return = collateral_return.min(cp);
+            store_collateral_pool(&env, cp - actual_return);
         }
 
         p.has_received_payout = true;
@@ -639,6 +648,11 @@ impl TandaContract {
         if cetes_kept == 0 {
             return Err(TandaError::NoCetesToReinvest);
         }
+
+        // Mark as received so participant cannot also call claim_payout
+        let mut p_updated = p;
+        p_updated.has_received_payout = true;
+        store_participant(&env, &participant, &p_updated);
 
         PayoutReinvestedEvent { participant: participant.clone(), payout_round, cetes_kept }.publish(&env);
         Ok(())
