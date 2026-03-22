@@ -143,3 +143,5 @@ full 3-round lifecycle, window enforcement, and payout eligibility gating.
 stellar contract build
 # Output: target/wasm32v1-none/release/tanda.wasm
 ```
+
+https://stellar.expert/explorer/testnet/account/GDTZQTGPOBXU4AA2U3HEQ7RPRBGXKUEZQSAXEGTLSM2CC45BPJLJOB6W
